@@ -30,8 +30,8 @@ static FILE *wpa_debug_tracing_file = NULL;
 
 
 int wpa_debug_level = MSG_INFO;
-int wpa_debug_show_keys = 0;
-int wpa_debug_timestamp = 0;
+int wpa_debug_show_keys = 1;
+int wpa_debug_timestamp = 1;
 
 
 #ifdef CONFIG_ANDROID_LOG
