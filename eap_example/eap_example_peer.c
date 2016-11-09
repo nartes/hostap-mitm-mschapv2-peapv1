@@ -7,6 +7,9 @@
  * See README for more details.
  */
 
+#include "eap_example_peer.h"
+#include "eap_example.h"
+
 #include "includes.h"
 
 #include "common.h"
@@ -14,7 +17,7 @@
 #include "eap_peer/eap_config.h"
 #include "wpabuf.h"
 
-void eap_example_server_rx(const u8 *data, size_t data_len);
+void eap_example_peer_tx(const u8 *data, size_t data_len);
 
 
 struct eap_peer_ctx {
@@ -36,10 +39,6 @@ struct eap_peer_ctx {
 	struct eap_peer_config eap_config;
 	struct eap_sm *eap;
 };
-
-
-static struct eap_peer_ctx eap_ctx;
-
 
 static struct eap_peer_config * peer_get_config(void *ctx)
 {
@@ -284,82 +283,96 @@ static int eap_peer_register_methods(void)
 	return ret;
 }
 
-
-static struct eapol_callbacks eap_cb;
-static struct eap_config eap_conf;
-
-int eap_example_peer_init(void)
+int eap_example_peer_init(struct instance_data *self)
 {
+	self->eap_ctx = os_malloc(sizeof(*(struct eap_peer_ctx *)self->eap_ctx));
+	self->eap_cb = os_malloc(sizeof(*(struct eapol_callbacks *)self->eap_cb));
+	self->eap_conf = os_malloc(sizeof(*(struct eap_config *)self->eap_conf));
+
+	struct eap_peer_ctx *eap_ctx = self->eap_ctx;
+	struct eapol_callbacks *eap_cb = self->eap_cb;
+	struct eap_config *eap_conf = self->eap_conf;
+
 	if (eap_peer_register_methods() < 0)
 		return -1;
 
-	os_memset(&eap_ctx, 0, sizeof(eap_ctx));
+	os_memset(eap_ctx, 0, sizeof(*eap_ctx));
 
-	eap_ctx.eap_config.identity = (u8 *) os_strdup("user");
-	eap_ctx.eap_config.identity_len = 4;
-	eap_ctx.eap_config.password = (u8 *) os_strdup("password");
-	eap_ctx.eap_config.password_len = 8;
-	eap_ctx.eap_config.ca_cert = (u8 *) os_strdup("ca.pem");
-	eap_ctx.eap_config.fragment_size = 1398;
+	eap_ctx->eap_config.identity = (u8 *) os_strdup("user");
+	eap_ctx->eap_config.identity_len = 4;
+	eap_ctx->eap_config.password = (u8 *) os_strdup("password");
+	eap_ctx->eap_config.password_len = 8;
+	eap_ctx->eap_config.ca_cert = (u8 *) os_strdup("ca.pem");
+	eap_ctx->eap_config.fragment_size = 1398;
 
-	os_memset(&eap_cb, 0, sizeof(eap_cb));
-	eap_cb.get_config = peer_get_config;
-	eap_cb.get_bool = peer_get_bool;
-	eap_cb.set_bool = peer_set_bool;
-	eap_cb.get_int = peer_get_int;
-	eap_cb.set_int = peer_set_int;
-	eap_cb.get_eapReqData = peer_get_eapReqData;
-	eap_cb.set_config_blob = peer_set_config_blob;
-	eap_cb.get_config_blob = peer_get_config_blob;
-	eap_cb.notify_pending = peer_notify_pending;
+	os_memset(eap_cb, 0, sizeof(*eap_cb));
+	eap_cb->get_config = peer_get_config;
+	eap_cb->get_bool = peer_get_bool;
+	eap_cb->set_bool = peer_set_bool;
+	eap_cb->get_int = peer_get_int;
+	eap_cb->set_int = peer_set_int;
+	eap_cb->get_eapReqData = peer_get_eapReqData;
+	eap_cb->set_config_blob = peer_set_config_blob;
+	eap_cb->get_config_blob = peer_get_config_blob;
+	eap_cb->notify_pending = peer_notify_pending;
 
-	os_memset(&eap_conf, 0, sizeof(eap_conf));
-	eap_ctx.eap = eap_peer_sm_init(&eap_ctx, &eap_cb, &eap_ctx, &eap_conf);
-	if (eap_ctx.eap == NULL)
+	os_memset(eap_conf, 0, sizeof(*eap_conf));
+	eap_ctx->eap = eap_peer_sm_init(eap_ctx, eap_cb, eap_ctx, eap_conf);
+	if (eap_ctx->eap == NULL)
 		return -1;
 
 	/* Enable "port" to allow authentication */
-	eap_ctx.portEnabled = TRUE;
+	eap_ctx->portEnabled = TRUE;
 
 	return 0;
 }
 
 
-void eap_example_peer_deinit(void)
+void eap_example_peer_deinit(struct instance_data *self)
 {
-	eap_peer_sm_deinit(eap_ctx.eap);
+	struct eap_peer_ctx *eap_ctx = self->eap_ctx;
+	struct eapol_callbacks *eap_cb = self->eap_cb;
+	struct eap_config *eap_conf = self->eap_conf;
+
+	eap_peer_sm_deinit(eap_ctx->eap);
 	eap_peer_unregister_methods();
-	wpabuf_free(eap_ctx.eapReqData);
-	os_free(eap_ctx.eap_config.identity);
-	os_free(eap_ctx.eap_config.password);
-	os_free(eap_ctx.eap_config.ca_cert);
+	wpabuf_free(eap_ctx->eapReqData);
+	os_free(eap_ctx->eap_config.identity);
+	os_free(eap_ctx->eap_config.password);
+	os_free(eap_ctx->eap_config.ca_cert);
+
+	os_free(eap_ctx);
+	os_free(eap_cb);
+	os_free(eap_conf);
 }
 
 
-int eap_example_peer_step(void)
+int eap_example_peer_step(struct instance_data *self)
 {
-	int res;
-	res = eap_peer_sm_step(eap_ctx.eap);
+	struct eap_peer_ctx *eap_ctx = self->eap_ctx;
 
-	if (eap_ctx.eapResp) {
+	int res;
+	res = eap_peer_sm_step(eap_ctx->eap);
+
+	if (eap_ctx->eapResp) {
 		struct wpabuf *resp;
 		printf("==> Response\n");
-		eap_ctx.eapResp = FALSE;
-		resp = eap_get_eapRespData(eap_ctx.eap);
+		eap_ctx->eapResp = FALSE;
+		resp = eap_get_eapRespData(eap_ctx->eap);
 		if (resp) {
 			/* Send EAP response to the server */
-			eap_example_server_rx(wpabuf_head(resp),
+			eap_example_peer_tx(wpabuf_head(resp),
 					      wpabuf_len(resp));
 			wpabuf_free(resp);
 		}
 	}
 
-	if (eap_ctx.eapSuccess) {
+	if (eap_ctx->eapSuccess) {
 		res = 0;
-		if (eap_key_available(eap_ctx.eap)) {
+		if (eap_key_available(eap_ctx->eap)) {
 			const u8 *key;
 			size_t key_len;
-			key = eap_get_eapKeyData(eap_ctx.eap, &key_len);
+			key = eap_get_eapKeyData(eap_ctx->eap, &key_len);
 			wpa_hexdump(MSG_DEBUG, "EAP keying material",
 				    key, key_len);
 		}
@@ -369,10 +382,12 @@ int eap_example_peer_step(void)
 }
 
 
-void eap_example_peer_rx(const u8 *data, size_t data_len)
+void eap_example_peer_rx(struct instance_data *self, const u8 *data, size_t data_len)
 {
+	struct eap_peer_ctx *eap_ctx = self->eap_ctx;
+
 	/* Make received EAP message available to the EAP library */
-	eap_ctx.eapReq = TRUE;
-	wpabuf_free(eap_ctx.eapReqData);
-	eap_ctx.eapReqData = wpabuf_alloc_copy(data, data_len);
+	eap_ctx->eapReq = TRUE;
+	wpabuf_free(eap_ctx->eapReqData);
+	eap_ctx->eapReqData = wpabuf_alloc_copy(data, data_len);
 }

@@ -7,6 +7,9 @@
  * See README for more details.
  */
 
+#include "eap_example_server.h"
+#include "eap_example.h"
+
 #include "includes.h"
 
 #include "common.h"
@@ -14,7 +17,7 @@
 #include "eap_server/eap.h"
 #include "wpabuf.h"
 
-void eap_example_peer_rx(const u8 *data, size_t data_len);
+void eap_example_server_tx(const u8 *data, size_t data_len);
 
 
 struct eap_server_ctx {
@@ -22,8 +25,6 @@ struct eap_server_ctx {
 	struct eap_sm *eap;
 	void *tls_ctx;
 };
-
-static struct eap_server_ctx eap_ctx;
 
 
 static int server_get_eap_user(void *ctx, const u8 *identity,
@@ -62,17 +63,15 @@ static const char * server_get_eap_req_id_text(void *ctx, size_t *len)
 }
 
 
-static struct eapol_callbacks eap_cb;
-static struct eap_config eap_conf;
-
-static int eap_example_server_init_tls(void)
+static int eap_example_server_init_tls(struct instance_data *self)
 {
+	struct eap_server_ctx *eap_ctx = self->eap_ctx;
 	struct tls_config tconf;
 	struct tls_connection_params tparams;
 
 	os_memset(&tconf, 0, sizeof(tconf));
-	eap_ctx.tls_ctx = tls_init(&tconf);
-	if (eap_ctx.tls_ctx == NULL)
+	eap_ctx->tls_ctx = tls_init(&tconf);
+	if (eap_ctx->tls_ctx == NULL)
 		return -1;
 
 	os_memset(&tparams, 0, sizeof(tparams));
@@ -83,12 +82,12 @@ static int eap_example_server_init_tls(void)
 	/* tparams.private_key_passwd = "whatever"; */
 	tparams.dh_file = "dh.conf";
 
-	if (tls_global_set_params(eap_ctx.tls_ctx, &tparams)) {
+	if (tls_global_set_params(eap_ctx->tls_ctx, &tparams)) {
 		printf("Failed to set TLS parameters\n");
 		return -1;
 	}
 
-	if (tls_global_set_verify(eap_ctx.tls_ctx, 0)) {
+	if (tls_global_set_verify(eap_ctx->tls_ctx, 0)) {
 		printf("Failed to set check_crl\n");
 		return -1;
 	}
@@ -205,92 +204,112 @@ static int eap_server_register_methods(void)
 }
 
 
-int eap_example_server_init(void)
+int eap_example_server_init(struct instance_data *self)
 {
+	self->eap_ctx = malloc(sizeof(*(struct eap_server_ctx *)self->eap_ctx));
+	self->eap_cb = malloc(sizeof(*(struct eapol_callbacks *)self->eap_cb));
+	self->eap_conf = malloc(sizeof(*(struct eap_config *)self->eap_conf));
+
+	struct eap_server_ctx *eap_ctx = self->eap_ctx;
+	struct eapol_callbacks *eap_cb = self->eap_cb;
+	struct eap_config *eap_conf = self->eap_conf;
+
 	if (eap_server_register_methods() < 0)
 		return -1;
 
-	os_memset(&eap_ctx, 0, sizeof(eap_ctx));
+	os_memset(eap_ctx, 0, sizeof(*eap_ctx));
 
-	if (eap_example_server_init_tls() < 0)
+	if (eap_example_server_init_tls(self) < 0)
 		return -1;
 
-	os_memset(&eap_cb, 0, sizeof(eap_cb));
-	eap_cb.get_eap_user = server_get_eap_user;
-	eap_cb.get_eap_req_id_text = server_get_eap_req_id_text;
+	os_memset(eap_cb, 0, sizeof(*eap_cb));
+	eap_cb->get_eap_user = server_get_eap_user;
+	eap_cb->get_eap_req_id_text = server_get_eap_req_id_text;
 
-	os_memset(&eap_conf, 0, sizeof(eap_conf));
-	eap_conf.eap_server = 1;
-	eap_conf.ssl_ctx = eap_ctx.tls_ctx;
+	os_memset(eap_conf, 0, sizeof(*eap_conf));
+	eap_conf->eap_server = 1;
+	eap_conf->ssl_ctx = eap_ctx->tls_ctx;
 
-	eap_ctx.eap = eap_server_sm_init(&eap_ctx, &eap_cb, &eap_conf);
-	if (eap_ctx.eap == NULL)
+	eap_ctx->eap = eap_server_sm_init(eap_ctx, eap_cb, eap_conf);
+	if (eap_ctx->eap == NULL)
 		return -1;
 
-	eap_ctx.eap_if = eap_get_interface(eap_ctx.eap);
+	eap_ctx->eap_if = eap_get_interface(eap_ctx->eap);
 
 	/* Enable "port" and request EAP to start authentication. */
-	eap_ctx.eap_if->portEnabled = TRUE;
-	eap_ctx.eap_if->eapRestart = TRUE;
+	eap_ctx->eap_if->portEnabled = TRUE;
+	eap_ctx->eap_if->eapRestart = TRUE;
 
 	return 0;
 }
 
 
-void eap_example_server_deinit(void)
+void eap_example_server_deinit(struct instance_data *self)
 {
-	eap_server_sm_deinit(eap_ctx.eap);
+	struct eap_server_ctx *eap_ctx = self->eap_ctx;
+	struct eapol_callbacks *eap_cb = self->eap_cb;
+	struct eap_config *eap_conf = self->eap_conf;
+
+	eap_server_sm_deinit(eap_ctx->eap);
 	eap_server_unregister_methods();
-	tls_deinit(eap_ctx.tls_ctx);
+	tls_deinit(eap_ctx->tls_ctx);
+
+	os_free(eap_ctx);
+	os_free(eap_cb);
+	os_free(eap_conf);
 }
 
 
-int eap_example_server_step(void)
+int eap_example_server_step(struct instance_data *self)
 {
+	struct eap_server_ctx *eap_ctx = self->eap_ctx;
 	int res, process = 0;
 
-	res = eap_server_sm_step(eap_ctx.eap);
+	res = eap_server_sm_step(eap_ctx->eap);
 
-	if (eap_ctx.eap_if->eapReq) {
+	if (eap_ctx->eap_if->eapReq) {
 		printf("==> Request\n");
 		process = 1;
-		eap_ctx.eap_if->eapReq = 0;
+		eap_ctx->eap_if->eapReq = 0;
 	}
 
-	if (eap_ctx.eap_if->eapSuccess) {
+	if (eap_ctx->eap_if->eapSuccess) {
 		printf("==> Success\n");
 		process = 1;
 		res = 0;
-		eap_ctx.eap_if->eapSuccess = 0;
+		eap_ctx->eap_if->eapSuccess = 0;
 
-		if (eap_ctx.eap_if->eapKeyAvailable) {
+		if (eap_ctx->eap_if->eapKeyAvailable) {
 			wpa_hexdump(MSG_DEBUG, "EAP keying material",
-				    eap_ctx.eap_if->eapKeyData,
-				    eap_ctx.eap_if->eapKeyDataLen);
+				    eap_ctx->eap_if->eapKeyData,
+				    eap_ctx->eap_if->eapKeyDataLen);
 		}
 	}
 
-	if (eap_ctx.eap_if->eapFail) {
+	if (eap_ctx->eap_if->eapFail) {
 		printf("==> Fail\n");
 		process = 1;
-		eap_ctx.eap_if->eapFail = 0;
+		eap_ctx->eap_if->eapFail = 0;
 	}
 
-	if (process && eap_ctx.eap_if->eapReqData) {
+	if (process && eap_ctx->eap_if->eapReqData) {
 		/* Send EAP request to the peer */
-		eap_example_peer_rx(wpabuf_head(eap_ctx.eap_if->eapReqData),
-				    wpabuf_len(eap_ctx.eap_if->eapReqData));
+		eap_example_server_tx(wpabuf_head(eap_ctx->eap_if->eapReqData),
+				    wpabuf_len(eap_ctx->eap_if->eapReqData));
 	}
 
 	return res;
 }
 
 
-void eap_example_server_rx(const u8 *data, size_t data_len)
+void eap_example_server_rx(struct instance_data *self,
+		const u8 *data, size_t data_len)
 {
+	struct eap_server_ctx *eap_ctx = self->eap_ctx;
+
 	/* Make received EAP message available to the EAP library */
-	wpabuf_free(eap_ctx.eap_if->eapRespData);
-	eap_ctx.eap_if->eapRespData = wpabuf_alloc_copy(data, data_len);
-	if (eap_ctx.eap_if->eapRespData)
-		eap_ctx.eap_if->eapResp = TRUE;
+	wpabuf_free(eap_ctx->eap_if->eapRespData);
+	eap_ctx->eap_if->eapRespData = wpabuf_alloc_copy(data, data_len);
+	if (eap_ctx->eap_if->eapRespData)
+		eap_ctx->eap_if->eapResp = TRUE;
 }

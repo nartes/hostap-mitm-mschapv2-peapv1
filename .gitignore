@@ -35,7 +35,6 @@ wlantest/wlantest_cli
 # Ignore build files
 Release/
 doc/_wpa_supplicant.*
-eap_example/
-hostap/
-outgoing/
+
+# Ignore ctags files
 tags
