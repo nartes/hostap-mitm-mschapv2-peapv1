@@ -19,8 +19,10 @@
 #include "wpabuf.h"
 
 
-static struct instance_data peer;
-static struct instance_data server;
+static struct instance_data bob_peer;
+static struct instance_data eve_peer;
+static struct instance_data eve_server;
+static struct instance_data alice_server;
 
 
 int eap_example_peer_init(struct instance_data *self);
@@ -33,35 +35,59 @@ void eap_example_server_deinit(struct instance_data *self);
 int eap_example_server_step(struct instance_data *self);
 
 
-void eap_example_peer_tx(const u8 *data, size_t data_len) {
-	eap_example_server_rx(&server, data, data_len);
+void eap_example_peer_tx(struct instance_data *self,
+		const u8 *data, size_t data_len) {
+	/* eve_peer tx, alice_server rx */
+	if (self == &eve_peer) {
+		eap_example_server_rx(&alice_server, data, data_len);
+	}
+	/* bob_peer tx, eve_server rx */
+	else if (self == &bob_peer) {
+		eap_example_server_rx(&eve_server, data, data_len);
+	}
 }
 
 
-void eap_example_server_tx(const u8 *data, size_t data_len) {
-	eap_example_peer_rx(&peer, data, data_len);
+void eap_example_server_tx(struct instance_data *self,
+		const u8 *data, size_t data_len) {
+	/* alice_server tx, eve_peer rx */
+	if (self == &alice_server) {
+		eap_example_peer_rx(&eve_peer, data, data_len);
+	}
+	/* eve_server rx, bob_peer tx */
+	else if (self == &eve_server) {
+		eap_example_peer_rx(&bob_peer, data, data_len);
+	}
 }
 
 
 int main(int argc, char *argv[])
 {
-	int res_s, res_p;
+	int res_a_s, res_b_p, res_e_s, res_e_p;
 
 	wpa_debug_level = 0;
 
-	if (eap_example_peer_init(&peer) < 0 ||
-	    eap_example_server_init(&server) < 0)
+	if (eap_example_peer_init(&bob_peer) < 0 ||
+	    eap_example_server_init(&alice_server) < 0 ||
+	    eap_example_peer_init(&eve_peer) < 0 ||
+	    eap_example_server_init(&eve_server) < 0)
 		return -1;
 
 	do {
-		printf("---[ server ]--------------------------------\n");
-		res_s = eap_example_server_step(&server);
-		printf("---[ peer ]----------------------------------\n");
-		res_p = eap_example_peer_step(&peer);
-	} while (res_s || res_p);
+		printf("---[ alice_server ]--------------------------------\n");
+		res_a_s = eap_example_server_step(&alice_server);
+		printf("---[ eve_peer ]----------------------------------\n");
+		res_e_p = eap_example_peer_step(&eve_peer);
+		printf("---[ eve_server ]--------------------------------\n");
+		res_e_s = eap_example_server_step(&eve_server);
+		printf("---[ bob_peer ]----------------------------------\n");
+		res_b_p = eap_example_peer_step(&bob_peer);
+	} while (res_a_s || res_b_p || res_e_p || res_e_s);
 
-	eap_example_peer_deinit(&peer);
-	eap_example_server_deinit(&server);
+	eap_example_peer_deinit(&bob_peer);
+	eap_example_server_deinit(&alice_server);
+	eap_example_peer_deinit(&eve_peer);
+	eap_example_server_deinit(&eve_server);
 
 	return 0;
 }

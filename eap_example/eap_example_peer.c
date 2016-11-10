@@ -17,8 +17,6 @@
 #include "eap_peer/eap_config.h"
 #include "wpabuf.h"
 
-void eap_example_peer_tx(const u8 *data, size_t data_len);
-
 
 struct eap_peer_ctx {
 	Boolean eapSuccess;
@@ -293,7 +291,12 @@ int eap_example_peer_init(struct instance_data *self)
 	struct eapol_callbacks *eap_cb = self->eap_cb;
 	struct eap_config *eap_conf = self->eap_conf;
 
-	if (eap_peer_register_methods() < 0)
+	/* eap_peer_register_methods seeds eap_methods static list variable
+	 * and as we call init at least twice for different self structure
+	 * we should tolerate getting -2 as a result of duplicate registration
+	 */
+	if (eap_peer_register_methods() != 0 &&
+	    eap_peer_register_methods() != -2)
 		return -1;
 
 	os_memset(eap_ctx, 0, sizeof(*eap_ctx));
@@ -361,7 +364,7 @@ int eap_example_peer_step(struct instance_data *self)
 		resp = eap_get_eapRespData(eap_ctx->eap);
 		if (resp) {
 			/* Send EAP response to the server */
-			eap_example_peer_tx(wpabuf_head(resp),
+			eap_example_peer_tx(self, wpabuf_head(resp),
 					      wpabuf_len(resp));
 			wpabuf_free(resp);
 		}
