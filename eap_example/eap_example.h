@@ -10,6 +10,7 @@ struct instance_data {
 	void *eap_ctx;
 	void *eap_cb;
 	void *eap_conf;
+	enum {ALICE_SERVER, BOB_PEER, EVE_SERVER, EVE_PEER} name;
 };
 
 

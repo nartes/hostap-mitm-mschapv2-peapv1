@@ -38,11 +38,11 @@ int eap_example_server_step(struct instance_data *self);
 void eap_example_peer_tx(struct instance_data *self,
 		const u8 *data, size_t data_len) {
 	/* eve_peer tx, alice_server rx */
-	if (self == &eve_peer) {
+	if (self->name == EVE_PEER) {
 		eap_example_server_rx(&alice_server, data, data_len);
 	}
 	/* bob_peer tx, eve_server rx */
-	else if (self == &bob_peer) {
+	else if (self->name == BOB_PEER) {
 		eap_example_server_rx(&eve_server, data, data_len);
 	}
 }
@@ -51,11 +51,11 @@ void eap_example_peer_tx(struct instance_data *self,
 void eap_example_server_tx(struct instance_data *self,
 		const u8 *data, size_t data_len) {
 	/* alice_server tx, eve_peer rx */
-	if (self == &alice_server) {
+	if (self->name == ALICE_SERVER) {
 		eap_example_peer_rx(&eve_peer, data, data_len);
 	}
 	/* eve_server rx, bob_peer tx */
-	else if (self == &eve_server) {
+	else if (self->name == EVE_SERVER) {
 		eap_example_peer_rx(&bob_peer, data, data_len);
 	}
 }
@@ -63,6 +63,12 @@ void eap_example_server_tx(struct instance_data *self,
 
 int main(int argc, char *argv[])
 {
+	/* Specify names for instances */
+	bob_peer.name = BOB_PEER;
+	eve_peer.name = EVE_PEER;
+	eve_server.name = EVE_SERVER;
+	alice_server.name = ALICE_SERVER;
+
 	int res_a_s, res_b_p, res_e_s, res_e_p;
 
 	wpa_debug_level = 0;

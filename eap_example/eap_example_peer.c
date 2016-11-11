@@ -305,7 +305,21 @@ int eap_example_peer_init(struct instance_data *self)
 	eap_ctx->eap_config.identity_len = 4;
 	eap_ctx->eap_config.password = (u8 *) os_strdup("password");
 	eap_ctx->eap_config.password_len = 8;
-	eap_ctx->eap_config.ca_cert = (u8 *) os_strdup("ca.pem");
+
+	/* Bob likes using insecure TLS, thus let's not verify the server's
+	 * certificate
+	 */
+	if (self->name == BOB_PEER) {
+		eap_ctx->eap_config.ca_cert = 0;
+	}
+	/* The attacker Eve is vice versa, i.e. likes hacking insecure
+	 * communications, but yet still remains on a safer side by
+	 * providing CA certificate by herself
+	 */
+	else if (self->name == EVE_PEER) {
+		eap_ctx->eap_config.ca_cert = (u8 *) os_strdup("ca.pem");
+	}
+
 	eap_ctx->eap_config.fragment_size = 1398;
 
 	os_memset(eap_cb, 0, sizeof(*eap_cb));
