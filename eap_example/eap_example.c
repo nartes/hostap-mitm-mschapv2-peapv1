@@ -60,6 +60,18 @@ void eap_example_server_tx(struct instance_data *self,
 	}
 }
 
+enum instance_name eap_example_get_instance_name(void *sm) {
+	if (bob_peer.eap_sm == sm) {
+		return BOB_PEER;
+	} else if (eve_peer.eap_sm == sm) {
+		return EVE_PEER;
+	} else if (eve_server.eap_sm == sm) {
+		return EVE_SERVER;
+	} else if (alice_server.eap_sm == sm) {
+		return ALICE_SERVER;
+	}
+}
+
 
 int main(int argc, char *argv[])
 {

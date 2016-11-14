@@ -35,6 +35,14 @@ static int server_get_eap_user(void *ctx, const u8 *identity,
 		/* Only allow EAP-PEAP as the Phase 1 method */
 		user->methods[0].vendor = EAP_VENDOR_IETF;
 		user->methods[0].method = EAP_TYPE_PEAP;
+		/*
+		 * Enable PEAPv1 to get rid of TLV Cryptobinding
+		 *
+		 * TODO(nartes): why this crypto_binding option has such
+		 * a wierd behaviour, especially by having it disabled
+		 * on the server side when running peap_init
+		 */
+		user->force_version = 1;
 		return 0;
 	}
 
@@ -237,6 +245,11 @@ int eap_example_server_init(struct instance_data *self)
 	eap_ctx->eap = eap_server_sm_init(eap_ctx, eap_cb, eap_conf);
 	if (eap_ctx->eap == NULL)
 		return -1;
+
+	/*
+	 * Store sm machine for identifying instances
+	 */
+	self->eap_sm = eap_ctx->eap;
 
 	eap_ctx->eap_if = eap_get_interface(eap_ctx->eap);
 

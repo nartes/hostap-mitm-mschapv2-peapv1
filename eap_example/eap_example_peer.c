@@ -307,10 +307,13 @@ int eap_example_peer_init(struct instance_data *self)
 	eap_ctx->eap_config.password_len = 8;
 
 	/* Bob likes using insecure TLS, thus let's not verify the server's
-	 * certificate
+	 * certificate and more...
 	 */
 	if (self->name == BOB_PEER) {
-		eap_ctx->eap_config.ca_cert = 0;
+		eap_ctx->eap_config.ca_cert = (u8 *) 0;
+
+		/* force peapv1 */
+		eap_ctx->eap_config.phase1 = (char *) os_strdup("peapver=1");
 	}
 	/* The attacker Eve is vice versa, i.e. likes hacking insecure
 	 * communications, but yet still remains on a safer side by
@@ -335,6 +338,12 @@ int eap_example_peer_init(struct instance_data *self)
 
 	os_memset(eap_conf, 0, sizeof(*eap_conf));
 	eap_ctx->eap = eap_peer_sm_init(eap_ctx, eap_cb, eap_ctx, eap_conf);
+
+	/*
+	 * Store sm machine for identifying instances
+	 */
+	self->eap_sm = eap_ctx->eap;
+
 	if (eap_ctx->eap == NULL)
 		return -1;
 
