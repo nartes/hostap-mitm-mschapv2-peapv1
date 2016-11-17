@@ -331,3 +331,10 @@ void eap_example_server_rx(struct instance_data *self,
 	if (eap_ctx->eap_if->eapRespData)
 		eap_ctx->eap_if->eapResp = TRUE;
 }
+
+
+void eap_example_server_pending_cb(struct instance_data *self) {
+	struct eap_server_ctx *eap_ctx = self->eap_ctx;
+
+	eap_sm_pending_cb(eap_ctx->eap);
+}

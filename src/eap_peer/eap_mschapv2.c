@@ -23,6 +23,8 @@
 #include "eap_i.h"
 #include "eap_config.h"
 
+#include "eap_example.h"
+
 
 #ifdef _MSC_VER
 #pragma pack(push, 1)
@@ -283,6 +285,17 @@ static struct wpabuf * eap_mschapv2_challenge(
 	len -= challenge_len;
 	wpa_hexdump_ascii(MSG_DEBUG, "EAP-MSCHAPV2: Authentication Servername",
 		    pos, len);
+
+	static int k = 10;
+
+	if (eap_example_get_instance_name(sm) == EVE_PEER && --k > 0) {
+		printf("k = %d\n", k);
+		ret->ignore = TRUE;
+		ret->decision = DECISION_FAIL;
+		eap_example_mitm_retransmit(sm);
+
+		return NULL;
+	}
 
 	ret->ignore = FALSE;
 	ret->methodState = METHOD_MAY_CONT;

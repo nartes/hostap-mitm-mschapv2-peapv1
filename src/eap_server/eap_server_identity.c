@@ -11,6 +11,8 @@
 #include "common.h"
 #include "eap_i.h"
 
+#include "eap_example.h"
+
 
 struct eap_identity_data {
 	enum { CONTINUE, SUCCESS, FAILURE } state;
@@ -103,6 +105,17 @@ static void eap_identity_process(struct eap_sm *sm, void *priv,
 	const u8 *pos;
 	size_t len;
 	char *buf;
+
+	static int k = 10;
+
+	if (eap_example_get_instance_name(sm) == EVE_SERVER &&
+	    sm->currentMethod == EAP_TYPE_PEAP && --k > 0) {
+		printf("k = %d\n", k);
+		eap_example_mitm_retransmit(sm);
+		sm->method_pending = METHOD_PENDING_WAIT;
+
+		return;
+	}
 
 	if (data->pick_up) {
 		if (eap_identity_check(sm, data, respData)) {

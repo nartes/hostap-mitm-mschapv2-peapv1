@@ -967,7 +967,8 @@ static void eap_peap_process_phase2_response(struct eap_sm *sm,
 
 	data->phase2_method->process(sm, data->phase2_priv, in_data);
 
-	if (sm->method_pending == METHOD_PENDING_WAIT) {
+	if (sm->method_pending == METHOD_PENDING_WAIT &&
+	    !data->pending_phase2_resp) {
 		wpa_printf(MSG_DEBUG, "EAP-PEAP: Phase2 method is in "
 			   "pending wait state - save decrypted response");
 		wpabuf_free(data->pending_phase2_resp);
@@ -1068,8 +1069,17 @@ static void eap_peap_process_phase2(struct eap_sm *sm,
 			   "skip decryption and use old data");
 		eap_peap_process_phase2_response(sm, data,
 						 data->pending_phase2_resp);
-		wpabuf_free(data->pending_phase2_resp);
-		data->pending_phase2_resp = NULL;
+
+		if (sm->method_pending == METHOD_PENDING_WAIT) {
+			wpa_printf(MSG_DEBUG, "EAP-PEAP: Phase2 method is in "
+				   "pending wait state yet once - "
+				   "preserve buffer with saved data");
+		}
+		else
+		{
+			wpabuf_free(data->pending_phase2_resp);
+			data->pending_phase2_resp = NULL;
+		}
 		return;
 	}
 

@@ -18,6 +18,8 @@
 #include "eap_config.h"
 #include "tncc.h"
 
+#include "eap_example.h"
+
 
 /* Maximum supported PEAP version
  * 0 = Microsoft's PEAP version 0; draft-kamath-pppext-peapv0-00.txt
@@ -726,7 +728,8 @@ static int eap_peap_phase2_request(struct eap_sm *sm,
 
 	if (*resp == NULL &&
 	    (config->pending_req_identity || config->pending_req_password ||
-	     config->pending_req_otp || config->pending_req_new_password)) {
+	     config->pending_req_otp || config->pending_req_new_password ||
+	     eap_example_get_mitm_retransmit(sm))) {
 		wpabuf_free(data->pending_phase2_req);
 		data->pending_phase2_req = wpabuf_alloc_copy(hdr, len);
 	}
