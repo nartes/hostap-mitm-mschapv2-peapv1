@@ -71,6 +71,20 @@ void eap_example_server_tx(struct instance_data *self,
 }
 
 
+void eap_example_mitm_server_tx(struct instance_data *self) {
+	wpabuf_free(eve_peer.mitm_data);
+	eve_peer.mitm_data = self->mitm_data;
+	self->mitm_data = 0;
+}
+
+
+void eap_example_mitm_peer_tx(struct instance_data *self) {
+	wpabuf_free(eve_server.mitm_data);
+	eve_server.mitm_data = self->mitm_data;
+	self->mitm_data = 0;
+}
+
+
 enum instance_name eap_example_get_instance_name(void *sm) {
 	if (bob_peer.eap_sm == sm) {
 		return BOB_PEER;
@@ -84,6 +98,7 @@ enum instance_name eap_example_get_instance_name(void *sm) {
 
 	return UNKNOWN;
 }
+
 
 struct instance_data * eap_example_get_instance_data(void * sm) {
 	struct instance_data * self = NULL;
@@ -139,7 +154,14 @@ void eap_example_mitm_retransmit_cb(struct instance_data * self) {
 void eap_example_init(struct instance_data *self, enum instance_name name) {
 	self->name = name;
 	self->mitm_retransmit = 0;
+	if (name == EVE_PEER || name == EVE_SERVER) {
+		self->mitm_data = 0;
+		self->mitm_protocol_state = 0x1;
+		wpa_printf(MSG_DEBUG, "MITM: Init protocol for instance %s",
+				name == EVE_PEER ? "Eve Peer" : "Eve Server");
+	}
 }
+
 
 int eap_example_step(struct instance_data * self) {
 	switch (self->name) {
@@ -176,15 +198,13 @@ int eap_example_step(struct instance_data * self) {
 
 int main(int argc, char *argv[])
 {
-	/* Specify names for instances */
+	int res_a_s, res_b_p, res_e_s, res_e_p;
+	wpa_debug_level = 0;
+
 	eap_example_init(&bob_peer, BOB_PEER);
 	eap_example_init(&eve_peer, EVE_PEER);
 	eap_example_init(&eve_server, EVE_SERVER);
 	eap_example_init(&alice_server, ALICE_SERVER);
-
-	int res_a_s, res_b_p, res_e_s, res_e_p;
-
-	wpa_debug_level = 0;
 
 	if (eap_example_peer_init(&bob_peer) < 0 ||
 	    eap_example_server_init(&alice_server) < 0 ||

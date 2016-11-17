@@ -109,12 +109,48 @@ static void eap_identity_process(struct eap_sm *sm, void *priv,
 	static int k = 10;
 
 	if (eap_example_get_instance_name(sm) == EVE_SERVER &&
-	    sm->currentMethod == EAP_TYPE_PEAP && --k > 0) {
-		printf("k = %d\n", k);
-		eap_example_mitm_retransmit(sm);
-		sm->method_pending = METHOD_PENDING_WAIT;
+	    sm->currentMethod == EAP_TYPE_PEAP) {
+	        if (k > 0) {
+		       --k;
+		}
 
-		return;
+		if (k == 0) {
+			k = -1;
+		}
+
+		if (k == 9) {
+			wpa_printf(MSG_DEBUG,
+				   "MITM: Init delay loop for Eve Server");
+		}
+
+		if (k > 0) {
+			struct instance_data * self =
+				eap_example_get_instance_data(sm);
+
+			if (self->mitm_protocol_state == 0x1 &&
+			    self->mitm_data) {
+				wpa_printf(MSG_DEBUG,
+					   "MITM: Received packet - "
+					   "continue EAP-Identity "
+					   "Phase2 method");
+				self->mitm_protocol_state = 0x2;
+				k = -1;
+			}
+		}
+
+		if (k > 0) {
+			eap_example_mitm_retransmit(sm);
+			sm->method_pending = METHOD_PENDING_WAIT;
+
+			return;
+		}
+
+		if (k == -1)
+		{
+			wpa_printf(MSG_DEBUG,
+				   "MITM: End delay loop for Eve Server");
+			k = -2;
+		}
 	}
 
 	if (data->pick_up) {

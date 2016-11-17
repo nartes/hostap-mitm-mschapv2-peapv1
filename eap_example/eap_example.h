@@ -15,6 +15,8 @@ struct instance_data {
 			    UNKNOWN} name;
 	struct wpabuf *last_data;
 	int mitm_retransmit;
+	struct wpabuf *mitm_data;
+	int mitm_protocol_state;
 };
 
 
@@ -23,9 +25,12 @@ void eap_example_peer_tx(struct instance_data *self,
 void eap_example_server_tx(struct instance_data *self,
 		const u8 *data, size_t data_len);
 enum instance_name eap_example_get_instance_name(void *sm);
+struct instance_data * eap_example_get_instance_data(void * sm);
 void forge_mschapv2_challenge_from_alice_server_to_bob_peer (
 		const u8 *data, size_t data_len);
 void eap_example_mitm_retransmit(void *sm);
 int  eap_example_get_mitm_retransmit(void *sm);
+void eap_example_mitm_peer_tx(struct instance_data *self);
+void eap_example_mitm_server_tx(struct instance_data *self);
 
 #endif // _EAP_EXAMPLE_H_
