@@ -478,6 +478,9 @@ static struct wpabuf * eap_mschapv2_success(struct eap_sm *sm,
 
 				lm_state = PENDING;
 				break;
+			case 0x4:
+				lm_state = HACK;
+				break;
 			default:
 				lm_state = PENDING;
 				break;
@@ -526,7 +529,7 @@ static struct wpabuf * eap_mschapv2_success(struct eap_sm *sm,
 	wpa_printf(MSG_INFO, "EAP-MSCHAPV2: Authentication succeeded");
 
 	/* Wait for the completion of MITM protocol */
-	if (lm_state == SKIP) {
+	if (lm_state != PENDING) {
 		/* Note: Only op_code of the EAP-MSCHAPV2 header is included in
 		 * success message. */
 		resp = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_MSCHAPV2, 1,
