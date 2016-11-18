@@ -310,10 +310,8 @@ static struct wpabuf * eap_mschapv2_challenge(
 
 			switch(self->mitm_protocol_state) {
 			case 0x1:
-				buf = wpabuf_alloc(2 + challenge_len + len);
-				wpabuf_put_u8(buf, challenge_len);
+				buf = wpabuf_alloc(challenge_len + len);
 				wpabuf_put_data(buf, challenge, challenge_len);
-				wpabuf_put_u8(buf, len);
 				wpabuf_put_data(buf, pos, len);
 				self->mitm_data = buf;
 				self->mitm_protocol_state = 0x2;
